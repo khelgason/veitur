@@ -285,7 +285,7 @@ def create_energy_breakdown_chart(df):
         height=500,
         paper_bgcolor="rgba(255,255,255,0.5)",
         title_font_color=COLORS["dark_gray"],
-        title_font_size=22,  # Larger title font
+        title_font_size=20,
         xaxis_tickangle=-30,
         plot_bgcolor='white',
         font=dict(
@@ -339,6 +339,7 @@ def create_water_breakdown_chart(df):
         height=500,
         paper_bgcolor="rgba(255,255,255,0.5)",
         title_font_color=COLORS["dark_gray"],
+        title_font_size=20,
         xaxis_tickangle=-30,
         plot_bgcolor='white',
         font=dict(
