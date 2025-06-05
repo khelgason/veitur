@@ -20,7 +20,7 @@ def main():
     st.logo("Veitur-logo/VEITUR_Merki_02.png", size="large", link=None, icon_image="Veitur-logo/VEITUR_Merki_01.png")
     
     # Display the title in the main area
-    st.title("Orkuvitund - Orkurík yfirlit")
+    st.title("Orkuvitund")
     
     # Date inputs in main page - using 4 columns with date pickers in the middle two
     col1, col2, col3, col4 = st.columns(4)
