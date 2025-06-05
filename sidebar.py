@@ -190,27 +190,55 @@ def display_monthly_cost_overview(df):
     # Get monthly costs
     monthly_costs = calculate_monthly_costs(df)
     
+    # Sort monthly costs by year and month in descending order
+    sorted_costs = monthly_costs.sort_values(["year", "month"], ascending=False)
+    
+    # Create a dictionary to store previous month's data for comparison
+    previous_data = {}
+    
     # Display monthly costs
-    for _, row in monthly_costs.sort_values(["year", "month"], ascending=False).iterrows():
+    for i, (_, row) in enumerate(sorted_costs.iterrows()):
         month_year = f"{row['month_name']} {row['year']}"
         total = row['total']
         elec = row['elec_total']
         water = row['water_total']
         
+        # Get previous month's data for comparison (if available)
+        if i < len(sorted_costs) - 1:
+            prev_row = sorted_costs.iloc[i + 1]
+            prev_total = prev_row['total']
+            prev_elec = prev_row['elec_total']
+            prev_water = prev_row['water_total']
+            
+            # Calculate percentage changes
+            total_change_pct = calculate_percentage_change(total, prev_total)
+            elec_change_pct = calculate_percentage_change(elec, prev_elec)
+            water_change_pct = calculate_percentage_change(water, prev_water)
+            
+            # Format percentage changes
+            total_change_formatted = format_percentage_change(total_change_pct)
+            elec_change_formatted = format_percentage_change(elec_change_pct)
+            water_change_formatted = format_percentage_change(water_change_pct)
+        else:
+            # No previous month data available
+            total_change_formatted = ""
+            elec_change_formatted = ""
+            water_change_formatted = ""
+        
         # Use HTML for better formatting and smaller font
         st.sidebar.markdown(f"""
         <div style='border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 8px;'>
             <div style='font-weight: bold;'>{month_year}</div>
-            <div style='font-size: 14px;'>Heildarkostnaður: {total:,.0f} kr.</div>
+            <div style='font-size: 14px;'>Heildarkostnaður: {total:,.0f} kr. {total_change_formatted}</div>
             <div style='font-size: 12px; color: #666;'>
-                Rafmagn: {elec:,.0f} kr.<br>
-                Heitt vatn: {water:,.0f} kr.
+                Rafmagn: {elec:,.0f} kr. {elec_change_formatted}<br>
+                Heitt vatn: {water:,.0f} kr. {water_change_formatted}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
 def display_sidebar(df):
     """Display all cost and user preference information in the sidebar"""
-    display_current_and_last_month_costs(df)
+    # display_current_and_last_month_costs(df)
     display_user_preferences()
     display_monthly_cost_overview(df)
