@@ -30,7 +30,8 @@ def format_date_icelandic(d):
 
 # --- Brand Colors ---
 COLORS = {
-    "red": "#58d66b",
+    "greenstraum": "#58d66b",
+    "red": "#BE2425",
     "mid_red": "#D84A4B",
     "green": "#58d66b", #8CD022",
     "light_blue": "#4CD0DC",
@@ -57,7 +58,10 @@ HOT_WATER_UNIT_COST = 150  # Increased from 20 to make usage cost higher than ta
 TAX_RATE = 0.10
 
 # Fixed daily adjustments for user preferences
-EV_DAILY_KWH = 10.0  # 10 kWh per day for EV
+EV_DAILY_KWH = 20.0  # 10 kWh per day for EV (day charging)
+EV_NIGHT_DAILY_KWH = 20.0  # 10 kWh per day for EV (night charging)
+EV_DAY_COST_MULTIPLIER = 2.2  # Regular cost for day charging
+EV_NIGHT_COST_MULTIPLIER = 1.5  # 30% discount for night charging
 ELECTRIC_HOT_TUB_DAILY_KWH = 8.0  # 8 kWh per day for electric hot tub
 GEOTHERMAL_HOT_TUB_DAILY_M3 = 0.2  # 0.2 m³ per day for geothermal hot tub
 HEAT_PUMP_ELEC_REDUCTION_KWH = 3.0  # 3 kWh per day reduction with heat pump
@@ -138,7 +142,22 @@ def generate_data(start_date, end_date):
         base_water = st.session_state['base_data']['base_water']
     
     # Apply fixed daily adjustments based on user preferences
-    ev_usage = np.ones(len(df)) * EV_DAILY_KWH if has_ev else 0
+    # Check for EV and charging time preference
+    ev_charging_time = st.session_state.get('ev_charging_time', 'day')
+    
+    if has_ev:
+        if ev_charging_time == 'night':
+            # Night charging - same kWh but lower cost multiplier
+            ev_usage = np.ones(len(df)) * EV_NIGHT_DAILY_KWH
+            ev_cost_multiplier = EV_NIGHT_COST_MULTIPLIER
+        else:
+            # Day charging - regular cost
+            ev_usage = np.ones(len(df)) * EV_DAILY_KWH
+            ev_cost_multiplier = EV_DAY_COST_MULTIPLIER
+    else:
+        ev_usage = 0
+        ev_cost_multiplier = 1.0
+    
     electric_hot_tub_usage = np.ones(len(df)) * ELECTRIC_HOT_TUB_DAILY_KWH if has_hot_tub and hot_tub_type == 'electric' else 0
     geothermal_hot_tub_usage = np.ones(len(df)) * GEOTHERMAL_HOT_TUB_DAILY_M3 if has_hot_tub and hot_tub_type == 'geothermal' else 0
     elec_reduction = np.ones(len(df)) * HEAT_PUMP_ELEC_REDUCTION_KWH if has_heat_pump else 0
@@ -196,8 +215,18 @@ def generate_data(start_date, end_date):
     
     # Calculate final electricity usage as sum of all energy categories
     df["elec_usage"] = base_elec - elec_reduction
+    
+    # Store EV usage separately to apply different cost multiplier
+    df["ev_usage"] = df["energy_ev"] if has_ev else 0
+    
+    # Add all energy categories to the total electricity usage
+    # Including EV usage in the total electricity usage
     for category in ENERGY_CATEGORIES.keys():
         df["elec_usage"] += df[category]
+        
+    # Add electric hot tub usage directly to ensure it's properly reflected
+    if has_hot_tub and hot_tub_type == 'electric':
+        df["elec_usage"] += electric_hot_tub_usage
     
     # Ensure usage is never negative
     df["elec_usage"] = df["elec_usage"].clip(lower=0)
@@ -213,19 +242,73 @@ def generate_data(start_date, end_date):
     df["cost_equalization"] = MONTHLY_EQUALIZATION / days_in_month
     
     # Calculate costs
-    df = compute_cost_columns(df, "elec_usage", ELECTRICITY_UNIT_COST, "elec")
+    # For electricity, handle EV costs separately with the appropriate multiplier
+    if has_ev:
+        # Calculate non-EV electricity costs
+        df = compute_cost_columns(df, "elec_usage", ELECTRICITY_UNIT_COST, "elec", include_ev=False)
+        
+        # Calculate EV costs with the appropriate multiplier
+        df = compute_ev_costs(df, "ev_usage", ELECTRICITY_UNIT_COST, ev_cost_multiplier)
+    else:
+        # No EV, calculate normal electricity costs
+        df = compute_cost_columns(df, "elec_usage", ELECTRICITY_UNIT_COST, "elec")
+        
+    # Add a significant boost to electricity costs if electric hot tub is enabled
+    if has_hot_tub and hot_tub_type == 'electric':
+        # Add hot tub electricity costs (using a high multiplier to make it noticeable)
+        hot_tub_cost = electric_hot_tub_usage * ELECTRICITY_UNIT_COST * 1.5  # Higher cost multiplier
+        hot_tub_tax = hot_tub_cost * TAX_RATE
+        
+        # Add to the total electricity costs
+        df["elec_usage_cost"] += hot_tub_cost
+        df["elec_tax"] += hot_tub_tax
+        df["elec_total"] += hot_tub_cost + hot_tub_tax
+    
+    # Calculate water costs normally
     df = compute_cost_columns(df, "water_usage", HOT_WATER_UNIT_COST, "water")
     
     return df
 
-def compute_cost_columns(df, usage_col, unit_price, prefix):
+def compute_cost_columns(df, usage_col, unit_price, prefix, include_ev=True):
     """Calculate cost components for a given usage column"""
     # Use the actual column name from the dataframe
     usage = df[usage_col] * unit_price
     tax = usage * TAX_RATE
-    df[f"{prefix}_usage_cost"] = usage  # Renamed to avoid confusion with usage quantity
-    df[f"{prefix}_tax"] = tax
-    df[f"{prefix}_total"] = df["cost_fixed"] + df["cost_equalization"] + usage + tax
+    
+    # If this is for electricity and we're excluding EV (because it's handled separately)
+    if prefix == "elec" and not include_ev:
+        # Store these as non-EV costs
+        df[f"{prefix}_usage_cost_non_ev"] = usage
+        df[f"{prefix}_tax_non_ev"] = tax
+        
+        # Initialize total columns if they don't exist yet
+        if f"{prefix}_usage_cost" not in df.columns:
+            df[f"{prefix}_usage_cost"] = usage
+            df[f"{prefix}_tax"] = tax
+            df[f"{prefix}_total"] = df["cost_fixed"] + df["cost_equalization"] + usage + tax
+    else:
+        # Normal case (water or electricity without EV separation)
+        df[f"{prefix}_usage_cost"] = usage  # Renamed to avoid confusion with usage quantity
+        df[f"{prefix}_tax"] = tax
+        df[f"{prefix}_total"] = df["cost_fixed"] + df["cost_equalization"] + usage + tax
+    
+    return df
+
+def compute_ev_costs(df, ev_usage_col, unit_price, cost_multiplier):
+    """Calculate EV costs with the appropriate cost multiplier"""
+    # Calculate EV usage cost with the multiplier
+    ev_usage_cost = df[ev_usage_col] * unit_price * cost_multiplier
+    ev_tax = ev_usage_cost * TAX_RATE
+    
+    # Add EV costs to the existing electricity costs
+    df["elec_usage_cost"] = df["elec_usage_cost_non_ev"] + ev_usage_cost
+    df["elec_tax"] = df["elec_tax_non_ev"] + ev_tax
+    df["elec_total"] = df["cost_fixed"] + df["cost_equalization"] + df["elec_usage_cost"] + df["elec_tax"]
+    
+    # Store EV-specific costs for reference
+    df["ev_usage_cost"] = ev_usage_cost
+    df["ev_tax"] = ev_tax
+    
     return df
 
 def aggregate_by_time_period(df, period):
@@ -249,6 +332,7 @@ def aggregate_by_time_period(df, period):
             "date": "first",  # Use first date of the week
             "elec_usage": "sum",
             "water_usage": "sum",
+            "ev_usage": "sum",
             "cost_fixed": "sum",
             "cost_equalization": "sum",
             "elec_usage_cost": "sum",
@@ -258,6 +342,16 @@ def aggregate_by_time_period(df, period):
             "water_tax": "sum",
             "water_total": "sum"
         }
+        
+        # Add EV-specific columns if they exist
+        if "ev_usage_cost" in agg_df.columns:
+            agg_dict["ev_usage_cost"] = "sum"
+            agg_dict["ev_tax"] = "sum"
+            
+        # Add non-EV electricity columns if they exist
+        if "elec_usage_cost_non_ev" in agg_df.columns:
+            agg_dict["elec_usage_cost_non_ev"] = "sum"
+            agg_dict["elec_tax_non_ev"] = "sum"
         
         # Add energy category columns to aggregation
         for col in energy_cols:

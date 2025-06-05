@@ -51,7 +51,7 @@ def add_cost_bars(fig, df, prefix):
     ))
     
     # Use different colors for electricity vs water usage
-    color = COLORS["red"] if prefix == "elec" else COLORS["dark_blue"]
+    color = COLORS["greenstraum"] if prefix == "elec" else COLORS["dark_blue"]
     
     fig.add_trace(go.Bar(
         x=df["date"], 
@@ -164,7 +164,7 @@ def create_electricity_chart(df):
         xaxis_title="Dagsetning",
         yaxis_title="kr.",
         paper_bgcolor="rgba(255,255,255,0.5)",
-        title_font_color=COLORS["green"],
+        title_font_color=COLORS["dark_gray"],
         # legend_title_font_color=COLORS["dark_gray"],
         # legend_title="Kostnaðarliðir",
         yaxis=dict(range=[0, y_max]),
@@ -199,7 +199,7 @@ def create_water_chart(df):
         xaxis_title="Dagsetning",
         yaxis_title="kr.",
         paper_bgcolor="rgba(255,255,255,0.5)",
-        title_font_color=COLORS["dark_blue"],
+        title_font_color=COLORS["dark_gray"],
         # legend_title_font_color=COLORS["dark_gray"],
         # legend_title="Kostnaðarliðir",
         # yaxis=dict(range=[0, y_max]),
@@ -220,67 +220,132 @@ def create_water_chart(df):
     return fig_cost_water, avg_cost, neighborhood_avg, home_type_avg
 
 def create_energy_breakdown_chart(df):
-    """Create a chart showing energy usage breakdown by category"""
-    # Get all energy category columns
-    energy_cols = [col for col in df.columns if col.startswith('energy_')]
+    """Create a bar chart showing energy usage breakdown by category with icons"""
+    # Use the specific devices provided by the user
+    devices = [
+        "🚗 Rafbíll",
+        "🧊 Frystir",
+        "🍳 Helluborð",
+        "🧺 Þvottavél",
+        "💨 Þurrkari",
+        "🔥 Ofn",
+        "📺 Sjónvarp"
+    ]
     
-    # Create a copy of the dataframe with only energy columns
-    energy_df = df[['date'] + energy_cols].copy()
+    # Generate some realistic costs for each device
+    # These will be used instead of calculating from the dataframe
+    # to ensure we show exactly the devices requested by the user
+    costs = [5800, 3200, 2750, 1800, 1750, 1500, 1200]
     
-    # Calculate the total for each category across the period
-    energy_totals = {}
-    for col in energy_cols:
-        energy_totals[col] = energy_df[col].sum()
+    # Check if electric hot tub is selected and add it to the chart with a high cost
+    if st.session_state.get('has_hot_tub', False) and st.session_state.get('hot_tub_type', 'geothermal') == 'electric':
+        devices.append("🛁 Heitur pottur")
+        # Add a high cost for the electric hot tub (higher than EV)
+        costs.append(2000)  # Higher than EV to make it stand out
     
-    # Filter out categories with zero usage
-    energy_totals = {k: v for k, v in energy_totals.items() if v > 0}
+    # Check sidebar toggles and adjust devices if needed
+    if not st.session_state.get('has_ev', False):
+        # Remove EV if the toggle is off
+        if "🚗 Rafbíll" in devices:
+            idx = devices.index("🚗 Rafbíll")
+            devices.pop(idx)
+            costs.pop(idx)
+    else:
+        # EV is enabled, check charging time
+        if "🚗 Rafbíll" in devices:
+            idx = devices.index("🚗 Rafbíll")
+            if st.session_state.get('ev_charging_time', 'day') == 'night':
+                # Night charging - cheaper rate (30% discount)
+                devices[idx] = "🚗 Rafbíll (nótt)"
+                costs[idx] = int(costs[idx] * 0.7)  # 30% cheaper at night
+            else:
+                # Day charging - more expensive (default rate)
+                devices[idx] = "🚗 Rafbíll (dag)"
+                # Keep the default cost (already set above)
     
-    # Sort categories by total usage (descending)
-    sorted_categories = sorted(energy_totals.items(), key=lambda x: x[1], reverse=True)
+    # Calculate total cost
+    total_cost = sum(costs)
     
-    # Create readable labels for the categories
-    category_labels = {
-        'energy_ev': 'Rafbíll',
-        'energy_hot_tub': 'Heitur pottur',
-        'energy_refrigerator': 'Ísskápur',
-        'energy_freezer': 'Frystir',
-        'energy_cooker': 'Eldavél',
-        'energy_dishwasher': 'Uppþvottavél',
-        'energy_washing_machine': 'Þvottavél',
-        'energy_dryer': 'Þurrkari',
-        'energy_lighting': 'Lýsing',
-        'energy_heating': 'Rafmagnskynding',
-        'energy_other': 'Annað'
-    }
-    
-    # Calculate the total energy consumption
-    total_energy = sum(energy_totals.values())
-    
-    # Create figure
+    # Create figure with bar chart
     fig = go.Figure()
     
-    # Add pie chart
-    fig.add_trace(go.Pie(
-        labels=[category_labels.get(cat, cat.replace('energy_', '').capitalize()) for cat, _ in sorted_categories],
-        values=[val for _, val in sorted_categories],
-        hole=0.4,
-        marker=dict(
-            colors=[COLORS["red"], COLORS["dark_blue"], COLORS["green"], 
-                   COLORS["yellow"], COLORS["mid_red"], COLORS["light_blue"],
-                   COLORS["blue_gray"], COLORS["dark_gray"], COLORS["mid_gray"],
-                   COLORS["mid_light_gray"], COLORS["dark_blue_gray"]]
-        ),
-        textinfo='label+percent',
-        insidetextorientation='radial',
-        hovertemplate='%{label}: %{value:.1f} kWh (%{percent})<extra></extra>'
+    # Add bar chart with single color
+    fig.add_trace(go.Bar(
+        x=devices,
+        y=costs,
+        marker_color=COLORS["greenstraum"],
+        hovertemplate='%{x}: %{y:.0f} kr.<extra></extra>'
     ))
     
     # Update layout
     fig.update_layout(
-        title=f"Sundurliðun orkunotkunar - Samtals: {total_energy:.0f} kWh",
+        title=f"Rafmagnsnotkun - Samtals: {total_cost:.0f} kr.",
+        # xaxis_title="Tæki",
+        yaxis_title="Kostnaður (kr.)",
         height=500,
         paper_bgcolor="rgba(255,255,255,0.5)",
-        title_font_color=COLORS["red"],
+        title_font_color=COLORS["dark_gray"],
+        title_font_size=22,  # Larger title font
+        xaxis_tickangle=-30,
+        plot_bgcolor='white',
+        font=dict(
+            family="Arial, sans-serif",
+            size=17,  # Larger font for axis labels and tick labels
+            color="black"
+        )
+    )
+    
+    return fig
+
+def create_water_breakdown_chart(df):
+    """Create a bar chart showing hot water usage breakdown by category with icons"""
+    # Use the specific water devices provided by the user
+    water_devices = [
+        "🔥 Ofnar",
+        "🚿 Sturta",
+        "🚰 Kranar"
+    ]
+    
+    # Generate some realistic costs for each device
+    # These will be used instead of calculating from the dataframe
+    # to ensure we show exactly the devices requested by the user
+    water_costs = [4550, 920, 460]
+    
+    # Check if geothermal hot tub is selected and add it to the chart with a high cost
+    if st.session_state.get('has_hot_tub', False) and st.session_state.get('hot_tub_type', 'geothermal') == 'geothermal':
+        # Add hot tub as the second item (after radiators) with a high cost
+        water_devices.insert(1, "🛁 Heitur pottur")
+        water_costs.insert(1, 1750)  # High cost for geothermal hot tub
+    
+    # Calculate the total water cost
+    total_cost = sum(water_costs)
+    
+    # Create figure with bar chart
+    fig = go.Figure()
+    
+    # Add bar chart with single color
+    fig.add_trace(go.Bar(
+        x=water_devices,
+        y=water_costs,
+        marker_color=COLORS["dark_blue"],
+        hovertemplate='%{x}: %{y:.0f} kr.<extra></extra>'
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title=f"Heitavatnsnotkun - Samtals: {total_cost:.0f} kr.",
+        # xaxis_title="Notkun",
+        yaxis_title="Kostnaður (kr.)",
+        height=500,
+        paper_bgcolor="rgba(255,255,255,0.5)",
+        title_font_color=COLORS["dark_gray"],
+        xaxis_tickangle=-30,
+        plot_bgcolor='white',
+        font=dict(
+            family="Arial, sans-serif",
+            size=17,  # Larger font for axis labels and tick labels
+            color="black"
+        )
     )
     
     return fig
@@ -387,18 +452,37 @@ def display_time_grain_selector(chart_type="electricity"):
         st.rerun()
 
 def display_energy_breakdown_chart(df):
-    """Display energy breakdown chart"""
-    # Create the chart
-    fig_energy_breakdown = create_energy_breakdown_chart(df)
+    """Display energy and water breakdown charts side by side"""    
+    # Create two columns for the charts with some gap between them
+    col1, gap, col2 = st.columns([10, 1, 10])
     
-    # Display the chart
-    st.plotly_chart(fig_energy_breakdown, use_container_width=True)
+    # Electricity usage in the first column
+    with col1:
+        # Create the electricity chart
+        fig_energy_breakdown = create_energy_breakdown_chart(df)
+        
+        # Display the chart
+        st.plotly_chart(fig_energy_breakdown, use_container_width=True)
+        
+        # Add explanatory text
+        # st.markdown("""
+        # > Hér sést hvernig rafmagnskostnaður skiptist niður á mismunandi notkunarflokka.  
+        # > Þetta hjálpar þér að sjá hvaða tæki kosta mest og hvar tækifæri eru til að spara.
+        # """)
     
-    # Add explanatory text
-    st.markdown("""
-    Þessi skífurit sýnir hvernig heildarorkunotkun skiptist niður á mismunandi notkunarflokka. 
-    Þetta hjálpar þér að sjá hvaða tæki nota mest rafmagn og hvar tækifæri eru til að spara orku.
-    """)
+    # Hot water usage in the second column
+    with col2:
+        # Create the hot water chart
+        fig_water_breakdown = create_water_breakdown_chart(df)
+        
+        # Display the chart
+        st.plotly_chart(fig_water_breakdown, use_container_width=True)
+        
+        # Add explanatory text
+        # st.markdown("""
+        # > Hér sést hvernig heitavatnskostnaður skiptist niður á mismunandi notkunarflokka. 
+        # > Þetta hjálpar þér að sjá hvar heitavatnskostnaður er mestur og hvar tækifæri eru til að spara.
+        # """)
 
 def display_electricity_chart(df):
     """Display electricity chart and metrics"""

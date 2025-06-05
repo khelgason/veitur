@@ -34,6 +34,14 @@ def on_ev_change():
     st.session_state.has_ev = st.session_state.ev_toggle
     # Force rerun to update data immediately
     st.session_state.force_rerun = True
+    
+def on_ev_charging_time_change():
+    """Callback when EV charging time option changes"""
+    # Update session state based on selection
+    selection = st.session_state.ev_charging_time_radio
+    st.session_state.ev_charging_time = "night" if selection == "Hlaða eftir kl.22:00" else "day"
+    # Force rerun to update data immediately
+    st.session_state.force_rerun = True
 
 def on_heat_pump_change():
     """Callback when heat pump toggle changes"""
@@ -53,6 +61,8 @@ def display_user_preferences():
         st.session_state.hot_tub_type = "geothermal"
     if 'has_ev' not in st.session_state:
         st.session_state.has_ev = False
+    if 'ev_charging_time' not in st.session_state:
+        st.session_state.ev_charging_time = "day"
     if 'has_heat_pump' not in st.session_state:
         st.session_state.has_heat_pump = False
     if 'force_rerun' not in st.session_state:
@@ -84,6 +94,17 @@ def display_user_preferences():
         key="ev_toggle", 
         on_change=on_ev_change
     )
+    
+    # If EV is selected, show radio buttons for charging time
+    if st.session_state.has_ev:
+        st.sidebar.radio(
+            "Hleðslutími:",
+            options=["Hlaða um dag", "Hlaða eftir kl.22:00"],
+            index=0 if st.session_state.ev_charging_time == "day" else 1,
+            horizontal=True,
+            key="ev_charging_time_radio",
+            on_change=on_ev_charging_time_change
+        )
     
     st.sidebar.toggle(
         "Varmadæla", 
