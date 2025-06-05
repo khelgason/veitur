@@ -30,16 +30,16 @@ def format_date_icelandic(d):
 
 # --- Brand Colors ---
 COLORS = {
-    "red": "#BE2425",
+    "red": "#58d66b",
     "mid_red": "#D84A4B",
-    "green": "#8CD022",
+    "green": "#58d66b", #8CD022",
     "light_blue": "#4CD0DC",
-    "dark_blue": "#0E8CA6",
+    "dark_blue": "#9958d6",
     "dark_gray": "#323232",
     "light_gray": "#E8EFEF",
     "mid_gray": "#8FA9AF",
     "mid_light_gray": "#C9D6D9",
-    "blue_gray": "#5A8C96",
+    "blue_gray": "#9958d6",
     "dark_blue_gray": "#364C4E",
     "yellow": "#F6D51C",
     "light_yellow": "#FADF62",
@@ -52,7 +52,7 @@ COLORS = {
 # --- Constants ---
 DAILY_FIXED_COST = 100
 MONTHLY_EQUALIZATION = 200
-ELECTRICITY_UNIT_COST = 35
+ELECTRICITY_UNIT_COST = 7
 HOT_WATER_UNIT_COST = 150  # Increased from 20 to make usage cost higher than tax
 TAX_RATE = 0.10
 
@@ -62,6 +62,36 @@ ELECTRIC_HOT_TUB_DAILY_KWH = 8.0  # 8 kWh per day for electric hot tub
 GEOTHERMAL_HOT_TUB_DAILY_M3 = 0.2  # 0.2 m³ per day for geothermal hot tub
 HEAT_PUMP_ELEC_REDUCTION_KWH = 3.0  # 3 kWh per day reduction with heat pump
 HEAT_PUMP_WATER_REDUCTION_M3 = 0.05  # 0.05 m³ per day reduction with heat pump
+
+# Energy usage categories (kWh per day)
+# Values adjusted to sum to 8795 when accumulated over the period
+ENERGY_CATEGORIES = {
+    "energy_ev": 266.0,  # Electric vehicle (30.3% of total)
+    "energy_hot_tub": 213.0,  # Electric hot tub (24.2% of total)
+    "energy_refrigerator": 40.0,  # Refrigerator (4.5% of total)
+    "energy_freezer": 53.0,  # Freezer (6.1% of total)
+    "energy_cooker": 32.0,  # Electric cooker (3.6% of total)
+    "energy_dishwasher": 26.0,  # Dishwasher (3.0% of total)
+    "energy_washing_machine": 21.0,  # Washing machine (2.4% of total)
+    "energy_dryer": 66.0,  # Clothes dryer (7.6% of total)
+    "energy_lighting": 26.0,  # Lighting (3.0% of total)
+    "energy_heating": 80.0,  # Electric heating (9.1% of total)
+    "energy_other": 53.0,  # Other appliances (6.0% of total)
+    # Total: 8795.0 kWh (100%)
+}
+
+# Hot water usage categories (m³ per day)
+# Values adjusted to sum to 600 when accumulated over the period
+WATER_CATEGORIES = {
+    "water_hot_tub": 180.0,  # Hot tub (30.0% of total)
+    "water_shower": 150.0,  # Shower (25.0% of total)
+    "water_radiators": 120.0,  # Radiators/heating (20.0% of total)
+    "water_faucets": 60.0,  # Faucets/taps (10.0% of total)
+    "water_dishwasher": 30.0,  # Dishwasher (5.0% of total)
+    "water_washing_machine": 24.0,  # Washing machine (4.0% of total)
+    "water_floor_heating": 36.0,  # Floor heating (6.0% of total)
+    # Total: 600.0 m³ (100%)
+}
 
 # --- Data generation and processing ---
 def generate_data(start_date, end_date):
@@ -114,8 +144,61 @@ def generate_data(start_date, end_date):
     elec_reduction = np.ones(len(df)) * HEAT_PUMP_ELEC_REDUCTION_KWH if has_heat_pump else 0
     water_reduction = np.ones(len(df)) * HEAT_PUMP_WATER_REDUCTION_M3 if has_heat_pump else 0
     
-    # Calculate final electricity usage
-    df["elec_usage"] = base_elec + ev_usage + electric_hot_tub_usage - elec_reduction
+    # Add energy usage categories
+    # EV and hot tub are conditional on user preferences
+    # Calculate daily values by dividing the total by the number of days in the period
+    days_in_period = len(df)
+    
+    # Handle EV and hot tub based on user preferences
+    if has_ev:
+        df["energy_ev"] = ENERGY_CATEGORIES["energy_ev"] / days_in_period * np.random.uniform(0.8, 1.2, len(df))
+    else:
+        df["energy_ev"] = 0
+        
+    if has_hot_tub and hot_tub_type == 'electric':
+        df["energy_hot_tub"] = ENERGY_CATEGORIES["energy_hot_tub"] / days_in_period * np.random.uniform(0.8, 1.2, len(df))
+    else:
+        df["energy_hot_tub"] = 0
+    
+    # Add random variation to each category (±20%)
+    for category, total_value in ENERGY_CATEGORIES.items():
+        # Skip EV and hot tub as they're already handled
+        if category in ["energy_ev", "energy_hot_tub"]:
+            continue
+            
+        # Calculate daily base value
+        daily_base = total_value / days_in_period
+        
+        # Apply seasonal factors to some categories
+        seasonal_factor = 1.0
+        if category == "energy_heating":
+            # More heating in winter
+            seasonal_factor = winter_elec_factor * fall_spring_elec_factor
+        elif category == "energy_refrigerator" or category == "energy_freezer":
+            # Slightly more in summer (warmer ambient temperature)
+            summer_factor = np.where(df["month"].isin([6, 7, 8]), 1.2, 1.0)
+            seasonal_factor = summer_factor
+            
+        # Generate random variations around the base value
+        variation = np.random.uniform(0.8, 1.2, len(df))
+        df[category] = daily_base * variation * seasonal_factor
+        
+    # Normalize the values to ensure they sum exactly to the target total
+    energy_cols = [col for col in df.columns if col.startswith('energy_')]
+    total_energy = sum(ENERGY_CATEGORIES.values())
+    current_sum = df[energy_cols].sum().sum()
+    
+    # Apply scaling factor to make the sum match the target
+    if current_sum > 0:  # Avoid division by zero
+        scaling_factor = total_energy / current_sum
+        for col in energy_cols:
+            df[col] = df[col] * scaling_factor
+    
+    # Calculate final electricity usage as sum of all energy categories
+    df["elec_usage"] = base_elec - elec_reduction
+    for category in ENERGY_CATEGORIES.keys():
+        df["elec_usage"] += df[category]
+    
     # Ensure usage is never negative
     df["elec_usage"] = df["elec_usage"].clip(lower=0)
     
@@ -150,6 +233,9 @@ def aggregate_by_time_period(df, period):
     # Make a copy to avoid modifying the original
     agg_df = df.copy()
     
+    # Get all energy category columns
+    energy_cols = [col for col in df.columns if col.startswith('energy_')]
+    
     if period == "daily":
         # Daily data is already at the right grain
         return agg_df
@@ -159,7 +245,7 @@ def aggregate_by_time_period(df, period):
         agg_df["week"] = agg_df["date"].dt.isocalendar().week
         
         # Group by year and week
-        grouped = agg_df.groupby(["year", "week"]).agg({
+        agg_dict = {
             "date": "first",  # Use first date of the week
             "elec_usage": "sum",
             "water_usage": "sum",
@@ -171,7 +257,13 @@ def aggregate_by_time_period(df, period):
             "water_usage_cost": "sum",
             "water_tax": "sum",
             "water_total": "sum"
-        }).reset_index()
+        }
+        
+        # Add energy category columns to aggregation
+        for col in energy_cols:
+            agg_dict[col] = "sum"
+            
+        grouped = agg_df.groupby(["year", "week"]).agg(agg_dict).reset_index()
         
     elif period == "monthly":
         # Add year and month
@@ -179,7 +271,7 @@ def aggregate_by_time_period(df, period):
         agg_df["month"] = agg_df["date"].dt.month
         
         # Group by year and month
-        grouped = agg_df.groupby(["year", "month"]).agg({
+        agg_dict = {
             "date": "first",  # Use first date of the month
             "elec_usage": "sum",
             "water_usage": "sum",
@@ -191,7 +283,13 @@ def aggregate_by_time_period(df, period):
             "water_usage_cost": "sum",
             "water_tax": "sum",
             "water_total": "sum"
-        }).reset_index()
+        }
+        
+        # Add energy category columns to aggregation
+        for col in energy_cols:
+            agg_dict[col] = "sum"
+            
+        grouped = agg_df.groupby(["year", "month"]).agg(agg_dict).reset_index()
         
         # Set date to first day of month for proper display
         grouped["date"] = grouped.apply(lambda row: pd.Timestamp(year=int(row["year"]), month=int(row["month"]), day=1), axis=1)

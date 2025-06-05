@@ -164,7 +164,7 @@ def create_electricity_chart(df):
         xaxis_title="Dagsetning",
         yaxis_title="kr.",
         paper_bgcolor="rgba(255,255,255,0.5)",
-        title_font_color=COLORS["red"],
+        title_font_color=COLORS["green"],
         # legend_title_font_color=COLORS["dark_gray"],
         # legend_title="Kostnaðarliðir",
         yaxis=dict(range=[0, y_max]),
@@ -219,10 +219,76 @@ def create_water_chart(df):
     
     return fig_cost_water, avg_cost, neighborhood_avg, home_type_avg
 
+def create_energy_breakdown_chart(df):
+    """Create a chart showing energy usage breakdown by category"""
+    # Get all energy category columns
+    energy_cols = [col for col in df.columns if col.startswith('energy_')]
+    
+    # Create a copy of the dataframe with only energy columns
+    energy_df = df[['date'] + energy_cols].copy()
+    
+    # Calculate the total for each category across the period
+    energy_totals = {}
+    for col in energy_cols:
+        energy_totals[col] = energy_df[col].sum()
+    
+    # Filter out categories with zero usage
+    energy_totals = {k: v for k, v in energy_totals.items() if v > 0}
+    
+    # Sort categories by total usage (descending)
+    sorted_categories = sorted(energy_totals.items(), key=lambda x: x[1], reverse=True)
+    
+    # Create readable labels for the categories
+    category_labels = {
+        'energy_ev': 'Rafbíll',
+        'energy_hot_tub': 'Heitur pottur',
+        'energy_refrigerator': 'Ísskápur',
+        'energy_freezer': 'Frystir',
+        'energy_cooker': 'Eldavél',
+        'energy_dishwasher': 'Uppþvottavél',
+        'energy_washing_machine': 'Þvottavél',
+        'energy_dryer': 'Þurrkari',
+        'energy_lighting': 'Lýsing',
+        'energy_heating': 'Rafmagnskynding',
+        'energy_other': 'Annað'
+    }
+    
+    # Calculate the total energy consumption
+    total_energy = sum(energy_totals.values())
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add pie chart
+    fig.add_trace(go.Pie(
+        labels=[category_labels.get(cat, cat.replace('energy_', '').capitalize()) for cat, _ in sorted_categories],
+        values=[val for _, val in sorted_categories],
+        hole=0.4,
+        marker=dict(
+            colors=[COLORS["red"], COLORS["dark_blue"], COLORS["green"], 
+                   COLORS["yellow"], COLORS["mid_red"], COLORS["light_blue"],
+                   COLORS["blue_gray"], COLORS["dark_gray"], COLORS["mid_gray"],
+                   COLORS["mid_light_gray"], COLORS["dark_blue_gray"]]
+        ),
+        textinfo='label+percent',
+        insidetextorientation='radial',
+        hovertemplate='%{label}: %{value:.1f} kWh (%{percent})<extra></extra>'
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title=f"Sundurliðun orkunotkunar - Samtals: {total_energy:.0f} kWh",
+        height=500,
+        paper_bgcolor="rgba(255,255,255,0.5)",
+        title_font_color=COLORS["red"],
+    )
+    
+    return fig
+
 def display_comparison_metrics(avg_cost, neighborhood_avg, home_type_avg, is_electricity=True, df=None):
     """Display comparison metrics below the chart"""
     # Set color based on chart type
-    title_color = COLORS["red"] if is_electricity else COLORS["dark_blue"]
+    title_color = COLORS["green"] if is_electricity else COLORS["dark_blue"]
     
     # Create columns for metrics
     col1, col2, col3 = st.columns(3)
@@ -319,6 +385,20 @@ def display_time_grain_selector(chart_type="electricity"):
     if selected_time_grain != st.session_state.time_grain:
         st.session_state.time_grain = selected_time_grain
         st.rerun()
+
+def display_energy_breakdown_chart(df):
+    """Display energy breakdown chart"""
+    # Create the chart
+    fig_energy_breakdown = create_energy_breakdown_chart(df)
+    
+    # Display the chart
+    st.plotly_chart(fig_energy_breakdown, use_container_width=True)
+    
+    # Add explanatory text
+    st.markdown("""
+    Þessi skífurit sýnir hvernig heildarorkunotkun skiptist niður á mismunandi notkunarflokka. 
+    Þetta hjálpar þér að sjá hvaða tæki nota mest rafmagn og hvar tækifæri eru til að spara orku.
+    """)
 
 def display_electricity_chart(df):
     """Display electricity chart and metrics"""
